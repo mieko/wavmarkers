@@ -1,0 +1,60 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "json"
+require "optparse"
+require "fileutils"
+
+Chapter = Struct.new("Chapter", :id, :start, :end, :name)
+
+options = {
+  format: "ogg",
+  output_dir: "."
+}
+
+OptionParser.new do |opts|
+  opts.banner = "Usage: #{$PROGRAM_NAME} [options] <input-file>"
+
+  opts.on("-f", "--format=FORMAT", "Output Format") do |v|
+    options[:format] = v
+  end
+
+  opts.on("-o", "--output=DIRECTORY", "Output Directory") do |v|
+    options[:output_dir] = v
+  end
+end.parse!
+
+command = %w[ffprobe -v quiet -print_format json -show_chapters]
+output = IO.popen([*command, ARGV[0]]).read
+json = JSON.parse(output)
+
+adjust = 0
+chapters = json["chapters"].filter_map do |chapter|
+  title = chapter["tags"]["title"]
+  if title.match(/^Tempo:/)
+    adjust -= 1
+    next
+  end
+
+  Chapter.new(id: chapter["id"] + adjust, name: title,
+              start: chapter["start_time"], end: chapter["end_time"])
+end
+
+# ffprobe gives us this in order, but be defensive
+chapters = chapters.sort_by(&:id)
+
+chapters.each do |chapter|
+  # zero-pad ID
+  id_string = "%02d" % chapter.id
+
+  output_basename = "#{id_string}-#{chapter.name}.#{options[:format]}"
+  output_name = File.join(options[:output_dir], output_basename)
+
+  dirname = File.dirname(output_name)
+  FileUtils.mkdir_p(dirname) unless Dir.exist?(dirname)
+
+  system("ffmpeg", "-i", ARGV[0],
+         "-ss", chapter.start,
+         "-to", chapter.end,
+         output_name)
+end
