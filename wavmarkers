@@ -1,5 +1,4 @@
 #!/usr/bin/env ruby
-# frozen_string_literal: true
 
 require "json"
 require "optparse"
@@ -24,6 +23,9 @@ OptionParser.new do |opts|
   end
 end.parse!
 
+abort "input file required" if ARGV.empty?
+abort "input file not found" unless File.exist?(ARGV[0])
+
 command = %w[ffprobe -v quiet -print_format json -show_chapters]
 output = IO.popen([*command, ARGV[0]]).read
 json = JSON.parse(output)
@@ -31,6 +33,7 @@ json = JSON.parse(output)
 adjust = 0
 chapters = json["chapters"].filter_map do |chapter|
   title = chapter["tags"]["title"]
+
   if title.match(/^Tempo:/)
     adjust -= 1
     next
@@ -47,11 +50,11 @@ chapters.each do |chapter|
   # zero-pad ID
   id_string = "%02d" % chapter.id
 
-  output_basename = "#{id_string}-#{chapter.name}.#{options[:format]}"
+  output_basename = "#{id_string} - #{chapter.name}.#{options[:format]}"
   output_name = File.join(options[:output_dir], output_basename)
 
   dirname = File.dirname(output_name)
-  FileUtils.mkdir_p(dirname) unless Dir.exist?(dirname)
+  FileUtils.mkdir_p(dirname)
 
   system("ffmpeg", "-i", ARGV[0],
          "-ss", chapter.start,
